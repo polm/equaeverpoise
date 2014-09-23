@@ -7,6 +7,13 @@ string2html = ->
     div.innerHTML = it
     return div.child-nodes
 
+get-first-child = ->
+  # We want the first child that's an actual node, not a comment or text
+  fc = it.first-child
+  while fc.node-type != 1
+    fc = fc.next-sibling
+  return fc
+
 class Rule
   # A rule for a single mapping
   (@selector, @accessor, opts=null) ~>
@@ -24,6 +31,37 @@ class Rule
       [@accessor, @_pull root.query-selector(@selector)]
     else
       [@accessor, root.query-selector(@selector).innerHTML]
+
+class ListRule
+  # A rule for lists
+  # There's no good way to tell how many "children" a list has unless they're all a single node,
+  # so that assumption is baked in here
+  (@selector, @accessor, opts=null) ~>
+    @_push = opts?.push or @default-push
+    @_pull = opts?.extract or @default-pull
+
+  default-push: (item, node) ->
+    node.innerHTML = item
+    return node
+
+  default-pull: (node) ->
+    node.innerHTML
+
+  push: (root, data) ~>
+    base = root.query-selector(@selector)
+    template = get-first-child(base).outerHTML
+    base.innerHTML = ''
+    for item in data[@accessor]
+      node = string2html(template).0
+      base.append-child @_push(item, node)
+
+  pull: (root) ~>
+    results = []
+    for node in root.query-selector(@selector).child-nodes
+      if node.node-type == 1
+        results.push @_pull node
+
+    return [@accessor, results]
 
 class Section
   # A page section
@@ -43,10 +81,7 @@ class Section
     @rules.push sel
 
   list-rule: (sel, acc, opts) ~>
-    push = (root, data) ->
-      base = root.query-selector(sel).innerHTML
-      #data[acc].map 
-
+    @rules.push new ListRule sel, acc, opts
 
 s = new Section!
 s.rule \.name, \name
@@ -57,9 +92,22 @@ inner.rule \span, \boring
 
 s.rule \.description, \desc, inner
 
-person = {name: "Tester", desc: {cool: \ohyeah, boring: \blahblah}}
+s.list-rule \.sentences, \sentences
+person =
+  name: "Tester"
+  desc:
+    cool: \ohyeah
+    boring: \blahblah
+  sentences: [
+    'one two three',
+    'pie is good',
+    'I like pie'
+  ]
 
 s.push document, person
+
+
+
 
 console.log s.pull document
 
